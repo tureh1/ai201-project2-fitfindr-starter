@@ -7,6 +7,8 @@
 
 ---
 
+FitFindr Setup Complete
+
 ## Tools
 
 List every tool your agent will use. For each tool, fill in all four fields.
