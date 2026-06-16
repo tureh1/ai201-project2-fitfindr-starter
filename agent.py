@@ -18,7 +18,56 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
+import re
+
 from tools import search_listings, suggest_outfit, create_fit_card
+
+
+# ── query parsing ─────────────────────────────────────────────────────────────
+
+def _parse_query(query: str) -> dict:
+    """
+    Extract a description, optional size, and optional max_price from a free-text
+    query using regex. The matched size/price phrases are stripped out of the
+    description so they don't pollute the keyword search.
+
+    Returns a dict: {"description": str, "size": str | None, "max_price": float | None}
+    """
+    remaining = query
+
+    # max_price: a number following $, "under", "below", or "<".
+    max_price = None
+    price_match = re.search(
+        r"(?:under|below|less than|<)\s*\$?\s*(\d+(?:\.\d+)?)|\$\s*(\d+(?:\.\d+)?)",
+        remaining,
+        flags=re.IGNORECASE,
+    )
+    if price_match:
+        amount = price_match.group(1) or price_match.group(2)
+        max_price = float(amount)
+        remaining = remaining[: price_match.start()] + remaining[price_match.end() :]
+
+    # size: explicit "size X" token, or a standalone size word / W##  / US #.
+    size = None
+    size_match = re.search(
+        r"size\s+([a-z0-9./]+)"
+        r"|\b(XS|S|M|L|XL|XXL|XXS)\b"
+        r"|\b(W\d{2})\b"
+        r"|\bUS\s*\d+(?:\.\d+)?\b",
+        remaining,
+        flags=re.IGNORECASE,
+    )
+    if size_match:
+        size = (size_match.group(1) or size_match.group(0)).strip()
+        # Normalise an explicit "size M" capture to just "M".
+        size = re.sub(r"^size\s+", "", size, flags=re.IGNORECASE).strip()
+        remaining = remaining[: size_match.start()] + remaining[size_match.end() :]
+
+    # description: whatever's left, cleaned of filler punctuation/words.
+    description = re.sub(r"\b(in|a|an|the|for)\b", " ", remaining, flags=re.IGNORECASE)
+    description = re.sub(r"\s+", " ", description).strip(" ,.-")
+
+    return {"description": description, "size": size, "max_price": max_price}
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -92,9 +141,49 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
+    # Step 1: initialize the session.
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    # Step 2: parse the query into search parameters.
+    parsed = _parse_query(query)
+    session["parsed"] = parsed
+
+    # Step 3: search. If nothing matches, set a helpful error and STOP — do not
+    # proceed to suggest_outfit with empty input.
+    results = search_listings(
+        parsed["description"],
+        size=parsed["size"],
+        max_price=parsed["max_price"],
+    )
+    session["search_results"] = results
+
+    if not results:
+        filters = []
+        if parsed["size"]:
+            filters.append(f"size {parsed['size']}")
+        if parsed["max_price"] is not None:
+            filters.append(f"under ${parsed['max_price']:.0f}")
+        filter_text = f" ({', '.join(filters)})" if filters else ""
+        session["error"] = (
+            f"No listings matched '{parsed['description']}'{filter_text}. "
+            "Try broader keywords, removing the size filter, or raising your max price."
+        )
+        return session
+
+    # Step 4: select the top-ranked result.
+    session["selected_item"] = results[0]
+
+    # Step 5: suggest an outfit (empty-wardrobe handling lives inside the tool).
+    session["outfit_suggestion"] = suggest_outfit(
+        session["selected_item"], session["wardrobe"]
+    )
+
+    # Step 6: turn the outfit into a shareable fit card.
+    session["fit_card"] = create_fit_card(
+        session["outfit_suggestion"], session["selected_item"]
+    )
+
+    # Step 7: return the completed session.
     return session
 
 
