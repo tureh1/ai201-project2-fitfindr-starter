@@ -127,32 +127,28 @@ Each failure mode has a dedicated test in [tests/test_tools.py](tests/test_tools
 
 ## AI Usage
 
-1. **`search_listings` implementation.** I gave Claude the Tool 1 spec block from
-   `planning.md` (the three params, the ranked-`list[dict]` return shape, and the
-   "return `[]`, never raise" failure mode) plus the stub's TODO steps, and asked
-   it to implement the function on top of `load_listings()`. I reviewed the output
-   against the spec — confirming it filtered by all three parameters, scored by
-   keyword overlap, dropped score-0 listings, and used case-insensitive substring
-   size matching — then verified with three queries (a tee search, a `max_price=10`
-   filter, and an impossible query expecting `[]`).
+1. Claude — planning and implementation support
 
-2. **Planning loop + state.** I shared the Architecture diagram and the Planning
-   Loop / State Management sections, and asked Claude to implement `run_agent`
-   following the seven numbered steps. The first draft I reviewed called all three
-   tools before checking the search result — I overrode it so the empty-results
-   branch sets `session["error"]` and `return`s *before* `suggest_outfit`. I
-   verified by running the no-results query and confirming `fit_card` stayed `None`
-   while `error` was set.
+Prompt: I gave Claude the FitFindr project instructions, the starter file structure, the fields in listings.json, the wardrobe schema, and my planning requirements. I also told it not to remove the original comments or starter template formatting because I wanted to preserve the structure of the repo.
+
+Result: Claude helped me fill in planning.md, implement the three tool functions in tools.py, connect the planning loop in agent.py, complete the Gradio handler in app.py, create pytest tests, and draft the first version of the README.
+
+Reflection: I used Claude as an implementation assistant, but I still reviewed the logic myself. For example, when Claude tried to rewrite too much of planning.md, I corrected the direction and asked it to keep the original comments and template lines. I also checked that the planning loop actually returned early when no listings were found, because the assignment required the agent to respond based on tool results instead of blindly running every tool. After the implementation, I verified the work by running pytest tests/, testing the no-results query, and checking that the app built successfully.
+
+2. ChatGPT — step-by-step guidance, review, and refinement
+
+Prompt: I used ChatGPT to help me understand the milestones step by step, review whether my implementation matched the rubric, improve the README wording, and plan how to test, commit, push, and record the demo.
+
+Result: ChatGPT helped me notice that describing the planning loop as a “fixed sequence” could sound misleading, since the project requires conditional tool use. I revised the README to explain that the agent uses early-exit guards: if search_listings returns [], the agent sets an error and stops before calling the styling and fit-card tools.
+
+Reflection: ChatGPT was most helpful for checking clarity and making sure my documentation matched the grading requirements. I used it as a reviewer rather than just copying answers. I still made sure to run the code myself, inspect the outputs, and confirm that the tests passed. This helped me follow the course guidance to verify AI-generated work instead of trusting it automatically.
+   
 
 ## Spec Reflection
 
-The spec held up well: writing the exact return shape and failure mode per tool
-*before* coding meant the planning loop's branch logic (empty list → early return)
-fell out of the design rather than being patched in afterward. The one thing I
-added beyond the original spec was try/except fallbacks inside the two LLM tools so
-the agent degrades gracefully (non-empty fallback strings) when `GROQ_API_KEY` is
-missing or the API call fails — the tests pass with or without a key for that
-reason.
+Writing the spec before coding helped me understand the project more clearly. The most useful part was defining each tool's input, output, and failure mode before implementation. That made it much easier to write the planning loop because I already knew what each tool should return and how the agent should respond.
+
+One place where the implementation expanded beyond my original plan was the LLM fallback behavior. Since suggest_outfit and create_fit_card rely on Groq, I added try/except fallbacks so the app and tests can still run even if the API key is missing or the LLM call fails. This made the project more reliable and easier to test.
 
 ## Notes
 
